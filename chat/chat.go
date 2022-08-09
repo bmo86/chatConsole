@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
+	"log"
 	"net"
 )
 
@@ -14,11 +16,11 @@ var (
 	msg             = make(chan string)
 )
 
-/* var (
-	host = flag.String("h", "localhost", "Host")
+var (
 	port = flag.Int("p", 3090, "Port")
+	host = flag.String("h", "localhost", "host")
 )
-*/
+
 func handlerConnection(conn net.Conn) {
 	defer conn.Close()
 	msgs := make(chan string)
@@ -36,11 +38,47 @@ func handlerConnection(conn net.Conn) {
 	}
 
 	leavingClients <- msg
-	msg <- fmt.Sprintf("%s soid goodbye", clientName)
+	msg <- fmt.Sprintf("%s said goodbye", clientName)
 }
 
 func MsgWriter(conn net.Conn, message <-chan string) {
 	for msg := range message {
 		fmt.Fprintln(conn, msg)
 	}
+}
+
+func BroadCast() {
+	clients := make(map[Client]bool)
+	for {
+		select {
+		case msgs := <-msg:
+			for client := range clients {
+				client <- msgs
+			}
+		case newClient := <-inComingClients:
+			clients[newClient] = true
+
+		case leavingClient := <-leavingClients:
+			delete(clients, leavingClient)
+			close(leavingClient) //cerrar el canal
+		}
+	}
+
+}
+
+func main() {
+	listener, err := net.Listen("tcp", fmt.Sprintf("%s:%d", *host, *port))
+	if err != nil {
+		log.Fatal(err)
+	}
+	go BroadCast()
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			log.Fatal(err)
+			continue
+		}
+		go handlerConnection(conn)
+	}
+
 }
